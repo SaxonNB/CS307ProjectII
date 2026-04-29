@@ -28,7 +28,7 @@ public class RecipeController {
     public ResponseEntity<?> getRecipeById(@PathVariable long recipeId) {
         try {
             RecipeRecord recipe = cacheService.getRecipe(recipeId, RecipeRecord.class);
-            
+
             if (recipe == null) {
                 recipe = recipeService.getRecipeById(recipeId);
                 if (recipe == null) {
@@ -36,7 +36,7 @@ public class RecipeController {
                 }
                 cacheService.setRecipe(recipeId, recipe);
             }
-            
+
             return ResponseEntity.ok(recipe);
         } catch (IllegalArgumentException e) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", e.getMessage()));
@@ -58,12 +58,12 @@ public class RecipeController {
             @SuppressWarnings("unchecked")
             PageResult<RecipeRecord> result = (PageResult<RecipeRecord>) cacheService.getSearchResult(
                     keyword, category, minRating, page, size, sort, PageResult.class);
-            
+
             if (result == null) {
                 result = recipeService.searchRecipes(keyword, category, minRating, page, size, sort);
                 cacheService.setSearchResult(keyword, category, minRating, page, size, sort, result);
             }
-            
+
             return ResponseEntity.ok(result);
         } catch (IllegalArgumentException e) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", e.getMessage()));
@@ -73,4 +73,3 @@ public class RecipeController {
         }
     }
 }
-

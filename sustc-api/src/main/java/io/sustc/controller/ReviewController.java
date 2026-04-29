@@ -33,12 +33,12 @@ public class ReviewController {
         try {
             @SuppressWarnings("unchecked")
             PageResult<ReviewRecord> result = (PageResult<ReviewRecord>) cacheService.getReviews(recipeId, page, size, sort, PageResult.class);
-            
+
             if (result == null) {
                 result = reviewService.listByRecipe(recipeId, page, size, sort);
                 cacheService.setReviews(recipeId, page, size, sort, result);
             }
-            
+
             return ResponseEntity.ok(result);
         } catch (IllegalArgumentException e) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", e.getMessage()));
@@ -48,4 +48,3 @@ public class ReviewController {
         }
     }
 }
-

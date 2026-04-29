@@ -1,9 +1,8 @@
-﻿package io.sustc.config;
+package io.sustc.config;
 
 import com.fasterxml.jackson.annotation.JsonAutoDetect;
 import com.fasterxml.jackson.annotation.PropertyAccessor;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.cache.CacheManager;
 import org.springframework.cache.annotation.EnableCaching;
 import org.springframework.context.annotation.Bean;
@@ -20,7 +19,6 @@ import java.time.Duration;
 
 @Configuration
 @EnableCaching
-@ConditionalOnProperty(name = "spring.data.redis.host")
 public class RedisConfig {
 
     @Bean

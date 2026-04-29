@@ -100,8 +100,8 @@ public class UserServiceImpl implements UserService {
 
         jdbcTemplate.update(
                 "INSERT INTO users " +
-                        "(AuthorId, AuthorName, Gender, Age, Followers, Following, Password, IsDeleted) " +
-                        "VALUES (?, ?, ?, ?, 0, 0, ?, FALSE)",
+                        "(AuthorId, AuthorName, Gender, Age, Password, IsDeleted) " +
+                        "VALUES (?, ?, ?, ?, ?, FALSE)",
                 newId,
                 name.trim(),
                 genderStr,

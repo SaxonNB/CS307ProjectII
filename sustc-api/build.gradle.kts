@@ -12,21 +12,15 @@ plugins {
 
 dependencies {
     implementation("org.springframework.boot:spring-boot-starter-jdbc")
-    // 添加OpenCSV依赖
-    implementation("com.opencsv:opencsv:5.7.1")
+    implementation("org.springframework.boot:spring-boot-starter-web")
+    implementation("org.springframework.boot:spring-boot-starter-data-redis")
+    implementation("org.apache.commons:commons-pool2")
 
+    implementation("com.opencsv:opencsv:5.7.1")
+    implementation("com.fasterxml.jackson.core:jackson-databind")
     implementation("org.furyio:fury-core:0.3.1")
 
-    // You may add any utility library you want to use, such as guava.
-    // ORM libraries are prohibited in this project.
-}
-
-tasks.withType<BootRun> {
-    enabled = false
-}
-
-tasks.withType<BootJar> {
-    enabled = false
+    runtimeOnly("org.postgresql:postgresql")
 }
 
 tasks.register("submitJar") {

@@ -1,9 +1,6 @@
 rootProject.name = "sustc"
 
-include(
-    "sustc-api",
-    "sustc-runner",
-)
+include("sustc-api")
 
 dependencyResolutionManagement {
     repositories {

@@ -43,13 +43,6 @@ public class DatabaseServiceImpl implements DatabaseService {
         createTables();
 
         String[] deleteTables = {
-                "user_favorite_recipes",
-                "recipe_keywords",
-                "keywords",
-                "recipe_ingredients_normalized",
-                "ingredients",
-                "instructions",
-                "nutrition",
                 "review_likes",
                 "reviews",
                 "recipe_ingredients",
@@ -57,7 +50,7 @@ public class DatabaseServiceImpl implements DatabaseService {
                 "recipes",
                 "users"
         };
-        
+
         for (String tableName : deleteTables) {
             try {
                 jdbcTemplate.update("DELETE FROM " + tableName);
@@ -68,10 +61,19 @@ public class DatabaseServiceImpl implements DatabaseService {
 
         final int batchSize = 1000;
 
+        Map<Long, String> authorIdToName = new HashMap<>();
+        if (userRecords != null) {
+            for (UserRecord u : userRecords) {
+                if (u != null) {
+                    authorIdToName.put(u.getAuthorId(), u.getAuthorName());
+                }
+            }
+        }
+
         if (userRecords != null && !userRecords.isEmpty()) {
             String userSql = "INSERT INTO users " +
-                    "(AuthorId, AuthorName, Gender, Age, Followers, Following, Password, IsDeleted) " +
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
+                    "(AuthorId, AuthorName, Gender, Age, Password, IsDeleted) " +
+                    "VALUES (?, ?, ?, ?, ?, ?)";
 
             for (int start = 0; start < userRecords.size(); start += batchSize) {
                 final int from = start;
@@ -84,10 +86,8 @@ public class DatabaseServiceImpl implements DatabaseService {
                         ps.setString(2, u.getAuthorName());
                         ps.setString(3, u.getGender());
                         ps.setInt(4, u.getAge());
-                        ps.setInt(5, u.getFollowers());
-                        ps.setInt(6, u.getFollowing());
-                        ps.setString(7, u.getPassword());
-                        ps.setBoolean(8, u.isDeleted());
+                        ps.setString(5, u.getPassword());
+                        ps.setBoolean(6, u.isDeleted());
                     }
 
                     @Override
@@ -100,9 +100,12 @@ public class DatabaseServiceImpl implements DatabaseService {
 
         if (recipeRecords != null && !recipeRecords.isEmpty()) {
             String recipeSql = "INSERT INTO recipes " +
-                    "(RecipeId, Name, AuthorId, CookTime, PrepTime, TotalTime, DatePublished, Description, " +
-                    "RecipeCategory, AggregatedRating, ReviewCount, RecipeServings, RecipeYield) " +
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                    "(RecipeId, Name, AuthorId, AuthorName, CookTime, PrepTime, TotalTime, DatePublished, " +
+                    "Description, RecipeCategory, RecipeServings, RecipeYield, IngredientTags, " +
+                    "AggregatedRating, ReviewCount, " +
+                    "Calories, FatContent, SaturatedFatContent, CholesterolContent, SodiumContent, " +
+                    "CarbohydrateContent, FiberContent, SugarContent, ProteinContent) " +
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
             for (int start = 0; start < recipeRecords.size(); start += batchSize) {
                 final int from = start;
@@ -114,28 +117,43 @@ public class DatabaseServiceImpl implements DatabaseService {
                         ps.setLong(1, r.getRecipeId());
                         ps.setString(2, r.getName());
                         ps.setLong(3, r.getAuthorId());
-                        ps.setString(4, r.getCookTime());
-                        ps.setString(5, r.getPrepTime());
-                        ps.setString(6, r.getTotalTime());
-                        ps.setTimestamp(7, r.getDatePublished());
-                        ps.setString(8, r.getDescription());
-                        ps.setString(9, r.getRecipeCategory());
-                        Object aggRating = r.getAggregatedRating();
-                        ps.setObject(10, aggRating);
-                        ps.setInt(11, r.getReviewCount());
+                        ps.setString(4, authorIdToName.getOrDefault(r.getAuthorId(), ""));
+                        ps.setString(5, r.getCookTime());
+                        ps.setString(6, r.getPrepTime());
+                        ps.setString(7, r.getTotalTime());
+                        ps.setTimestamp(8, r.getDatePublished());
+                        ps.setString(9, r.getDescription());
+                        ps.setString(10, r.getRecipeCategory());
                         Object servings = r.getRecipeServings();
                         if (servings instanceof String) {
                             try {
-                                ps.setInt(12, Integer.parseInt((String) servings));
+                                ps.setInt(11, Integer.parseInt((String) servings));
                             } catch (NumberFormatException e) {
-                                ps.setNull(12, java.sql.Types.INTEGER);
+                                ps.setNull(11, java.sql.Types.INTEGER);
                             }
                         } else if (servings instanceof Number) {
-                            ps.setInt(12, ((Number) servings).intValue());
+                            ps.setInt(11, ((Number) servings).intValue());
                         } else {
-                            ps.setNull(12, java.sql.Types.INTEGER);
+                            ps.setNull(11, java.sql.Types.INTEGER);
                         }
-                        ps.setString(13, r.getRecipeYield());
+                        ps.setString(12, r.getRecipeYield());
+                        String[] parts = r.getRecipeIngredientParts();
+                        String ingredientTags = (parts != null && parts.length > 0)
+                                ? String.join("|", parts)
+                                : null;
+                        ps.setString(13, ingredientTags);
+                        Object aggRating = r.getAggregatedRating();
+                        ps.setObject(14, aggRating);
+                        ps.setInt(15, r.getReviewCount());
+                        ps.setObject(16, r.getCalories() > 0 ? r.getCalories() : null);
+                        ps.setObject(17, r.getFatContent() > 0 ? r.getFatContent() : null);
+                        ps.setObject(18, r.getSaturatedFatContent() > 0 ? r.getSaturatedFatContent() : null);
+                        ps.setObject(19, r.getCholesterolContent() > 0 ? r.getCholesterolContent() : null);
+                        ps.setObject(20, r.getSodiumContent() > 0 ? r.getSodiumContent() : null);
+                        ps.setObject(21, r.getCarbohydrateContent() > 0 ? r.getCarbohydrateContent() : null);
+                        ps.setObject(22, r.getFiberContent() > 0 ? r.getFiberContent() : null);
+                        ps.setObject(23, r.getSugarContent() > 0 ? r.getSugarContent() : null);
+                        ps.setObject(24, r.getProteinContent() > 0 ? r.getProteinContent() : null);
                     }
 
                     @Override
@@ -144,61 +162,9 @@ public class DatabaseServiceImpl implements DatabaseService {
                     }
                 });
             }
-
-            List<Object[]> nutritionBatch = new ArrayList<>();
-            for (RecipeRecord r : recipeRecords) {
-                if (r != null && r.getCalories() > 0) {
-                    nutritionBatch.add(new Object[]{
-                            r.getRecipeId(),
-                            r.getCalories(),
-                            r.getFatContent(),
-                            r.getSaturatedFatContent(),
-                            r.getCholesterolContent(),
-                            r.getSodiumContent(),
-                            r.getCarbohydrateContent(),
-                            r.getFiberContent(),
-                            r.getSugarContent(),
-                            r.getProteinContent()
-                    });
-                }
-            }
-
-            if (!nutritionBatch.isEmpty()) {
-                String nutritionSql = "INSERT INTO nutrition " +
-                        "(RecipeId, Calories, FatContent, SaturatedFatContent, CholesterolContent, " +
-                        "SodiumContent, CarbohydrateContent, FiberContent, SugarContent, ProteinContent) " +
-                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (RecipeId) DO NOTHING";
-
-                for (int start = 0; start < nutritionBatch.size(); start += batchSize) {
-                    final int from = start;
-                    final int to = Math.min(from + batchSize, nutritionBatch.size());
-                    jdbcTemplate.batchUpdate(nutritionSql, new BatchPreparedStatementSetter() {
-                        @Override
-                        public void setValues(PreparedStatement ps, int i) throws SQLException {
-                            Object[] row = nutritionBatch.get(from + i);
-                            ps.setLong(1, ((Number) row[0]).longValue());
-                            ps.setObject(2, row[1]);
-                            ps.setObject(3, row[2]);
-                            ps.setObject(4, row[3]);
-                            ps.setObject(5, row[4]);
-                            ps.setObject(6, row[5]);
-                            ps.setObject(7, row[6]);
-                            ps.setObject(8, row[7]);
-                            ps.setObject(9, row[8]);
-                            ps.setObject(10, row[9]);
-                        }
-
-                        @Override
-                        public int getBatchSize() {
-                            return to - from;
-                        }
-                    });
-                }
-            }
         }
 
         if (recipeRecords != null && !recipeRecords.isEmpty()) {
-            //+保持原始大小写，使用LinkedHashSet去重
             Map<Long, Set<String>> recipeIngredientsMap = new HashMap<>();
             for (RecipeRecord recipe : recipeRecords) {
                 if (recipe != null && recipe.getRecipeIngredientParts() != null) {
@@ -244,17 +210,14 @@ public class DatabaseServiceImpl implements DatabaseService {
             }
         }
 
-        //+记录成功插入的reviewId用于外键验证
         Set<Long> validReviewIds = new HashSet<>();
-        
+
         if (reviewRecords != null && !reviewRecords.isEmpty()) {
-            //+Rating=0保留用于likeReview，但计算AggregatedRating时排除
             List<ReviewRecord> validReviews = new ArrayList<>();
             for (ReviewRecord r : reviewRecords) {
                 if (r != null) {
                     float rating = r.getRating();
                     if (rating < 0.0f) {
-                        log.debug("Converting review {} with rating {} to 0", r.getReviewId(), rating);
                         ReviewRecord modified = ReviewRecord.builder()
                                 .reviewId(r.getReviewId())
                                 .recipeId(r.getRecipeId())
@@ -266,7 +229,6 @@ public class DatabaseServiceImpl implements DatabaseService {
                                 .build();
                         validReviews.add(modified);
                     } else if (rating > 5.0f) {
-                        log.debug("Converting review {} with rating {} to 5", r.getReviewId(), rating);
                         ReviewRecord modified = ReviewRecord.builder()
                                 .reviewId(r.getReviewId())
                                 .recipeId(r.getRecipeId())
@@ -286,8 +248,8 @@ public class DatabaseServiceImpl implements DatabaseService {
 
             if (!validReviews.isEmpty()) {
                 String reviewSql = "INSERT INTO reviews " +
-                        "(ReviewId, RecipeId, AuthorId, Rating, Review, DateSubmitted, DateModified) " +
-                        "VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (ReviewId) DO NOTHING";
+                        "(ReviewId, RecipeId, AuthorId, AuthorName, Rating, Review, DateSubmitted, DateModified) " +
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (ReviewId) DO NOTHING";
 
                 for (int start = 0; start < validReviews.size(); start += batchSize) {
                     final int from = start;
@@ -299,14 +261,15 @@ public class DatabaseServiceImpl implements DatabaseService {
                             ps.setLong(1, r.getReviewId());
                             ps.setLong(2, r.getRecipeId());
                             ps.setLong(3, r.getAuthorId());
+                            ps.setString(4, authorIdToName.getOrDefault(r.getAuthorId(), ""));
                             float ratingFloat = r.getRating();
                             int rating = Math.round(ratingFloat);
                             if (rating < 0) rating = 0;
                             if (rating > 5) rating = 5;
-                            ps.setInt(4, rating);
-                            ps.setString(5, r.getReview());
-                            ps.setTimestamp(6, r.getDateSubmitted());
-                            ps.setTimestamp(7, r.getDateModified());
+                            ps.setInt(5, rating);
+                            ps.setString(6, r.getReview());
+                            ps.setTimestamp(7, r.getDateSubmitted());
+                            ps.setTimestamp(8, r.getDateModified());
                         }
 
                         @Override
@@ -318,7 +281,6 @@ public class DatabaseServiceImpl implements DatabaseService {
             }
         }
 
-        //+只插入有效的reviewId
         if (reviewRecords != null && !reviewRecords.isEmpty() && !validReviewIds.isEmpty()) {
             List<Object[]> likeBatch = new ArrayList<>();
             for (ReviewRecord review : reviewRecords) {
@@ -407,16 +369,8 @@ public class DatabaseServiceImpl implements DatabaseService {
         }
     }
 
-
     private void createTables() {
         String[] dropTableSQLs = {
-                "DROP TABLE IF EXISTS user_favorite_recipes CASCADE",
-                "DROP TABLE IF EXISTS recipe_keywords CASCADE",
-                "DROP TABLE IF EXISTS keywords CASCADE",
-                "DROP TABLE IF EXISTS recipe_ingredients_normalized CASCADE",
-                "DROP TABLE IF EXISTS ingredients CASCADE",
-                "DROP TABLE IF EXISTS instructions CASCADE",
-                "DROP TABLE IF EXISTS nutrition CASCADE",
                 "DROP TABLE IF EXISTS review_likes CASCADE",
                 "DROP TABLE IF EXISTS reviews CASCADE",
                 "DROP TABLE IF EXISTS recipe_ingredients CASCADE",
@@ -424,7 +378,7 @@ public class DatabaseServiceImpl implements DatabaseService {
                 "DROP TABLE IF EXISTS recipes CASCADE",
                 "DROP TABLE IF EXISTS users CASCADE"
         };
-        
+
         for (String sql : dropTableSQLs) {
             try {
                 jdbcTemplate.execute(sql);
@@ -432,26 +386,7 @@ public class DatabaseServiceImpl implements DatabaseService {
                 log.debug("Drop table error (may not exist): {}", e.getMessage());
             }
         }
-        
-        String[] dropTriggerSQLs = {
-                "DROP TRIGGER IF EXISTS trigger_update_recipe_rating_insert ON reviews",
-                "DROP TRIGGER IF EXISTS trigger_update_recipe_rating_update ON reviews",
-                "DROP TRIGGER IF EXISTS trigger_update_recipe_rating_delete ON reviews"
-        };
-        for (String sql : dropTriggerSQLs) {
-            try {
-                jdbcTemplate.execute(sql);
-            } catch (Exception e) {
-                log.debug("Drop trigger error: {}", e.getMessage());
-            }
-        }
-        
-        try {
-            jdbcTemplate.execute("DROP FUNCTION IF EXISTS update_recipe_rating() CASCADE");
-        } catch (Exception e) {
-            log.debug("Drop function error: {}", e.getMessage());
-        }
-        
+
         String[] createTableSQLs = {
                 "CREATE TABLE IF NOT EXISTS users (" +
                         "    AuthorId BIGINT PRIMARY KEY, " +
@@ -459,15 +394,14 @@ public class DatabaseServiceImpl implements DatabaseService {
                         "    Gender VARCHAR(10) CHECK (Gender IN ('Male', 'Female')), " +
                         "    Age INTEGER CHECK (Age > 0), " +
                         "    Password TEXT, " +
-                        "    IsDeleted BOOLEAN DEFAULT FALSE, " +
-                        "    Followers INTEGER DEFAULT 0 CHECK (Followers >= 0), " +
-                        "    Following INTEGER DEFAULT 0 CHECK (Following >= 0)" +
+                        "    IsDeleted BOOLEAN DEFAULT FALSE" +
                         ")",
 
                 "CREATE TABLE IF NOT EXISTS recipes (" +
                         "    RecipeId BIGINT PRIMARY KEY, " +
-                        "    AuthorId BIGINT NOT NULL, " +
                         "    Name TEXT NOT NULL, " +
+                        "    AuthorId BIGINT NOT NULL, " +
+                        "    AuthorName TEXT NOT NULL, " +
                         "    CookTime TEXT, " +
                         "    PrepTime TEXT, " +
                         "    TotalTime TEXT, " +
@@ -476,8 +410,18 @@ public class DatabaseServiceImpl implements DatabaseService {
                         "    RecipeCategory TEXT, " +
                         "    RecipeServings INTEGER, " +
                         "    RecipeYield TEXT, " +
+                        "    IngredientTags TEXT, " +
                         "    AggregatedRating DECIMAL(3,2) CHECK (AggregatedRating >= 0 AND AggregatedRating <= 5), " +
                         "    ReviewCount INTEGER DEFAULT 0 CHECK (ReviewCount >= 0), " +
+                        "    Calories NUMERIC(10, 2), " +
+                        "    FatContent NUMERIC(10, 2), " +
+                        "    SaturatedFatContent NUMERIC(10, 2), " +
+                        "    CholesterolContent NUMERIC(10, 2), " +
+                        "    SodiumContent NUMERIC(10, 2), " +
+                        "    CarbohydrateContent NUMERIC(10, 2), " +
+                        "    FiberContent NUMERIC(10, 2), " +
+                        "    SugarContent NUMERIC(10, 2), " +
+                        "    ProteinContent NUMERIC(10, 2), " +
                         "    FOREIGN KEY (AuthorId) REFERENCES users(AuthorId)" +
                         ")",
 
@@ -485,6 +429,7 @@ public class DatabaseServiceImpl implements DatabaseService {
                         "    ReviewId BIGINT PRIMARY KEY, " +
                         "    RecipeId BIGINT NOT NULL, " +
                         "    AuthorId BIGINT NOT NULL, " +
+                        "    AuthorName TEXT NOT NULL, " +
                         "    Rating INTEGER NOT NULL CHECK (Rating >= 0 AND Rating <= 5), " +
                         "    Review TEXT, " +
                         "    DateSubmitted TIMESTAMP, " +
@@ -515,67 +460,6 @@ public class DatabaseServiceImpl implements DatabaseService {
                         "    FOREIGN KEY (FollowerId) REFERENCES users(AuthorId), " +
                         "    FOREIGN KEY (FollowingId) REFERENCES users(AuthorId), " +
                         "    CHECK (FollowerId != FollowingId)" +
-                        ")",
-
-                "CREATE TABLE IF NOT EXISTS nutrition (" +
-                        "    RecipeId BIGINT PRIMARY KEY, " +
-                        "    Calories NUMERIC(10, 2) NOT NULL, " +
-                        "    FatContent NUMERIC(10, 2), " +
-                        "    SaturatedFatContent NUMERIC(10, 2), " +
-                        "    CholesterolContent NUMERIC(10, 2), " +
-                        "    SodiumContent NUMERIC(10, 2), " +
-                        "    CarbohydrateContent NUMERIC(10, 2), " +
-                        "    FiberContent NUMERIC(10, 2), " +
-                        "    SugarContent NUMERIC(10, 2), " +
-                        "    ProteinContent NUMERIC(10, 2), " +
-                        "    FOREIGN KEY (RecipeId) REFERENCES recipes(RecipeId) ON DELETE CASCADE" +
-                        ")",
-
-                "CREATE TABLE IF NOT EXISTS instructions (" +
-                        "    RecipeId BIGINT, " +
-                        "    StepNumber INTEGER, " +
-                        "    InstructionText TEXT NOT NULL, " +
-                        "    PRIMARY KEY (RecipeId, StepNumber), " +
-                        "    FOREIGN KEY (RecipeId) REFERENCES recipes(RecipeId) ON DELETE CASCADE" +
-                        ")",
-
-                "CREATE TABLE IF NOT EXISTS ingredients (" +
-                        "    IngredientId BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, " +
-                        "    IngredientName TEXT NOT NULL UNIQUE, " +
-                        "    CreatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP" +
-                        ")",
-
-                "CREATE TABLE IF NOT EXISTS recipe_ingredients_normalized (" +
-                        "    RecipeId BIGINT, " +
-                        "    IngredientId BIGINT, " +
-                        "    Quantity TEXT, " +
-                        "    Unit TEXT, " +
-                        "    PRIMARY KEY (RecipeId, IngredientId), " +
-                        "    FOREIGN KEY (RecipeId) REFERENCES recipes(RecipeId) ON DELETE CASCADE, " +
-                        "    FOREIGN KEY (IngredientId) REFERENCES ingredients(IngredientId) ON DELETE CASCADE" +
-                        ")",
-
-                "CREATE TABLE IF NOT EXISTS keywords (" +
-                        "    KeywordId BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, " +
-                        "    KeywordText TEXT NOT NULL UNIQUE, " +
-                        "    CreatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP" +
-                        ")",
-
-                "CREATE TABLE IF NOT EXISTS recipe_keywords (" +
-                        "    RecipeId BIGINT, " +
-                        "    KeywordId BIGINT, " +
-                        "    PRIMARY KEY (RecipeId, KeywordId), " +
-                        "    FOREIGN KEY (RecipeId) REFERENCES recipes(RecipeId) ON DELETE CASCADE, " +
-                        "    FOREIGN KEY (KeywordId) REFERENCES keywords(KeywordId) ON DELETE CASCADE" +
-                        ")",
-
-                "CREATE TABLE IF NOT EXISTS user_favorite_recipes (" +
-                        "    AuthorId BIGINT, " +
-                        "    RecipeId BIGINT, " +
-                        "    CreatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP, " +
-                        "    PRIMARY KEY (AuthorId, RecipeId), " +
-                        "    FOREIGN KEY (AuthorId) REFERENCES users(AuthorId), " +
-                        "    FOREIGN KEY (RecipeId) REFERENCES recipes(RecipeId) ON DELETE CASCADE" +
                         ")"
         };
 
@@ -585,9 +469,6 @@ public class DatabaseServiceImpl implements DatabaseService {
                 log.debug("Table created successfully");
             } catch (Exception e) {
                 log.warn("Table creation error (may already exist): {}", e.getMessage());
-                if (e.getMessage() != null && e.getMessage().contains("不存在")) {
-                    log.error("Table creation failed due to missing dependency: {}", e.getMessage());
-                }
             }
         }
 
@@ -595,12 +476,6 @@ public class DatabaseServiceImpl implements DatabaseService {
             createIndexes();
         } catch (Exception e) {
             log.warn("Index creation failed, but tables are created: {}", e.getMessage());
-        }
-
-        try {
-            createViews();
-        } catch (Exception e) {
-            log.warn("View creation failed, but tables are created: {}", e.getMessage());
         }
     }
 
@@ -613,42 +488,20 @@ public class DatabaseServiceImpl implements DatabaseService {
                 "CREATE INDEX IF NOT EXISTS idx_recipes_category ON recipes(RecipeCategory)",
                 "CREATE INDEX IF NOT EXISTS idx_recipes_datepublished ON recipes(DatePublished DESC NULLS LAST)",
                 "CREATE INDEX IF NOT EXISTS idx_recipes_rating ON recipes(AggregatedRating DESC NULLS LAST)",
-                "CREATE INDEX IF NOT EXISTS idx_recipes_reviewcount ON recipes(ReviewCount DESC)",
                 "CREATE INDEX IF NOT EXISTS idx_recipes_feed ON recipes(AuthorId, RecipeCategory, DatePublished DESC NULLS LAST)",
-                "CREATE INDEX IF NOT EXISTS idx_recipes_category_rating ON recipes(RecipeCategory, AggregatedRating DESC NULLS LAST)",
                 "CREATE INDEX IF NOT EXISTS idx_recipes_name_lower ON recipes(LOWER(Name))",
                 "CREATE INDEX IF NOT EXISTS idx_recipes_description_lower ON recipes(LOWER(Description))",
+                "CREATE INDEX IF NOT EXISTS idx_recipes_calories ON recipes(Calories ASC NULLS LAST)",
 
                 "CREATE INDEX IF NOT EXISTS idx_reviews_recipeid ON reviews(RecipeId)",
-                "CREATE INDEX IF NOT EXISTS idx_reviews_authorid ON reviews(AuthorId)",
-                "CREATE INDEX IF NOT EXISTS idx_reviews_datemodified ON reviews(DateModified DESC)",
-                "CREATE INDEX IF NOT EXISTS idx_reviews_rating ON reviews(Rating)",
                 "CREATE INDEX IF NOT EXISTS idx_reviews_recipe_date ON reviews(RecipeId, DateModified DESC)",
 
                 "CREATE INDEX IF NOT EXISTS idx_recipe_ingredients_recipeid ON recipe_ingredients(RecipeId)",
-                "CREATE INDEX IF NOT EXISTS idx_recipe_ingredients_part_lower ON recipe_ingredients(LOWER(IngredientPart))",
 
                 "CREATE INDEX IF NOT EXISTS idx_review_likes_reviewid ON review_likes(ReviewId)",
-                "CREATE INDEX IF NOT EXISTS idx_review_likes_authorid ON review_likes(AuthorId)",
 
                 "CREATE INDEX IF NOT EXISTS idx_user_follows_followerid ON user_follows(FollowerId)",
-                "CREATE INDEX IF NOT EXISTS idx_user_follows_followingid ON user_follows(FollowingId)",
-
-                "CREATE INDEX IF NOT EXISTS idx_nutrition_calories ON nutrition(Calories ASC NULLS LAST)",
-
-                "CREATE INDEX IF NOT EXISTS idx_instructions_recipeid ON instructions(RecipeId)",
-
-                "CREATE INDEX IF NOT EXISTS idx_recipe_ingredients_norm_recipeid ON recipe_ingredients_normalized(RecipeId)",
-                "CREATE INDEX IF NOT EXISTS idx_recipe_ingredients_norm_ingredientid ON recipe_ingredients_normalized(IngredientId)",
-                "CREATE INDEX IF NOT EXISTS idx_ingredients_name_lower ON ingredients(LOWER(IngredientName))",
-
-                "CREATE INDEX IF NOT EXISTS idx_recipe_keywords_recipeid ON recipe_keywords(RecipeId)",
-                "CREATE INDEX IF NOT EXISTS idx_recipe_keywords_keywordid ON recipe_keywords(KeywordId)",
-                "CREATE INDEX IF NOT EXISTS idx_keywords_text_lower ON keywords(LOWER(KeywordText))",
-
-                "CREATE INDEX IF NOT EXISTS idx_user_favorite_recipes_authorid ON user_favorite_recipes(AuthorId)",
-                "CREATE INDEX IF NOT EXISTS idx_user_favorite_recipes_recipeid ON user_favorite_recipes(RecipeId)",
-                "CREATE INDEX IF NOT EXISTS idx_user_favorite_recipes_created ON user_favorite_recipes(CreatedAt DESC)"
+                "CREATE INDEX IF NOT EXISTS idx_user_follows_followingid ON user_follows(FollowingId)"
         };
 
         for (String sql : createIndexSQLs) {
@@ -659,97 +512,6 @@ public class DatabaseServiceImpl implements DatabaseService {
             }
         }
     }
-
-    private void createTriggers() {
-        String triggerFunction = "CREATE OR REPLACE FUNCTION update_recipe_rating() " +
-                "RETURNS TRIGGER AS $$ " +
-                "BEGIN " +
-                "    UPDATE recipes " +
-                "    SET " +
-                "        AggregatedRating = ( " +
-                "            SELECT COALESCE(AVG(Rating), 0) " +
-                "            FROM reviews " +
-                "            WHERE RecipeId = COALESCE(NEW.RecipeId, OLD.RecipeId) " +
-                "        ), " +
-                "        ReviewCount = ( " +
-                "            SELECT COUNT(*) " +
-                "            FROM reviews " +
-                "            WHERE RecipeId = COALESCE(NEW.RecipeId, OLD.RecipeId) " +
-                "        ) " +
-                "    WHERE RecipeId = COALESCE(NEW.RecipeId, OLD.RecipeId); " +
-                "    RETURN COALESCE(NEW, OLD); " +
-                "END; " +
-                "$$ LANGUAGE plpgsql";
-
-        try {
-            jdbcTemplate.execute(triggerFunction);
-        } catch (Exception e) {
-            log.warn("Trigger function creation error: {}", e.getMessage());
-        }
-
-        String[] triggerSQLs = {
-                "DROP TRIGGER IF EXISTS trigger_update_recipe_rating_insert ON reviews",
-                "CREATE TRIGGER trigger_update_recipe_rating_insert " +
-                        "    AFTER INSERT ON reviews " +
-                        "    FOR EACH ROW " +
-                        "    EXECUTE FUNCTION update_recipe_rating()",
-                "DROP TRIGGER IF EXISTS trigger_update_recipe_rating_update ON reviews",
-                "CREATE TRIGGER trigger_update_recipe_rating_update " +
-                        "    AFTER UPDATE OF Rating ON reviews " +
-                        "    FOR EACH ROW " +
-                        "    EXECUTE FUNCTION update_recipe_rating()",
-                "DROP TRIGGER IF EXISTS trigger_update_recipe_rating_delete ON reviews",
-                "CREATE TRIGGER trigger_update_recipe_rating_delete " +
-                        "    AFTER DELETE ON reviews " +
-                        "    FOR EACH ROW " +
-                        "    EXECUTE FUNCTION update_recipe_rating()"
-        };
-
-        for (String sql : triggerSQLs) {
-            try {
-                jdbcTemplate.execute(sql);
-            } catch (Exception e) {
-                log.debug("Trigger creation skipped: {}", e.getMessage());
-            }
-        }
-    }
-
-    private void createViews() {
-        String viewSQL = "CREATE OR REPLACE VIEW recipe_full AS " +
-                "SELECT " +
-                "    r.RecipeId, " +
-                "    r.AuthorId, " +
-                "    r.Name, " +
-                "    r.CookTime, " +
-                "    r.PrepTime, " +
-                "    r.TotalTime, " +
-                "    r.DatePublished, " +
-                "    r.Description, " +
-                "    r.RecipeCategory, " +
-                "    r.RecipeServings, " +
-                "    r.RecipeYield, " +
-                "    r.AggregatedRating, " +
-                "    r.ReviewCount, " +
-                "    n.Calories, " +
-                "    n.FatContent, " +
-                "    n.SaturatedFatContent, " +
-                "    n.CholesterolContent, " +
-                "    n.SodiumContent, " +
-                "    n.CarbohydrateContent, " +
-                "    n.FiberContent, " +
-                "    n.SugarContent, " +
-                "    n.ProteinContent " +
-                "FROM recipes r " +
-                "LEFT JOIN nutrition n ON r.RecipeId = n.RecipeId";
-
-        try {
-            jdbcTemplate.execute(viewSQL);
-        } catch (Exception e) {
-            log.warn("View creation error: {}", e.getMessage());
-        }
-    }
-
-
 
     @Override
     public void drop() {

@@ -1,19 +1,17 @@
 spring:
   datasource:
-    url: jdbc:postgresql://localhost:12138/sustc  # change this to your own jdbc url
-    username: sustc  # change this to your own username (avoid using a superuser)
-    password: sustc  # change this to your own password
-
+    url: jdbc:postgresql://localhost:12138/sustc
+    username: sustc
+    password: sustc
     hikari:
       connection-timeout: 180000
       leak-detection-threshold: 120000
 
-  # Redis 配置（可选，如果 Redis 不可用，应用会自动降级到直接查询数据库）
   data:
     redis:
       host: localhost
       port: 6379
-      password:  # 如果有密码，在这里填写
+      password:
       database: 0
       timeout: 3000ms
       lettuce:
@@ -23,7 +21,6 @@ spring:
           min-idle: 0
           max-wait: -1ms
 
-  # Web server configuration
   web:
     resources:
       static-locations: classpath:/static/
@@ -35,9 +32,3 @@ logging:
   level:
     root: off
     io.sustc: debug
-
----
-
-benchmark:
-  data-path: data
-  student-mode: true

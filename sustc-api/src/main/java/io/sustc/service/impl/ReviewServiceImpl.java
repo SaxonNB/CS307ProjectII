@@ -15,6 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.sql.Timestamp;
 import java.util.*;
+import java.util.stream.Collectors;
 
 @Service
 @Slf4j
@@ -46,7 +47,6 @@ public class ReviewServiceImpl implements ReviewService {
         }
     }
 
-    //+用于likeReview和unlikeReview，需要验证密码
     private long requireActiveUserWithPassword(AuthInfo auth) {
         if (auth == null) {
             throw new SecurityException("auth is null");
@@ -60,7 +60,7 @@ public class ReviewServiceImpl implements ReviewService {
             );
             Map<String, Object> lowerCaseRow = new HashMap<>();
             row.forEach((k, v) -> lowerCaseRow.put(k.toLowerCase(), v));
-            
+
             Boolean isDeleted = (Boolean) lowerCaseRow.get("isdeleted");
             if (isDeleted == null || isDeleted) {
                 throw new SecurityException("user is inactive");
@@ -73,6 +73,34 @@ public class ReviewServiceImpl implements ReviewService {
             return userId;
         } catch (EmptyResultDataAccessException e) {
             throw new SecurityException("user does not exist", e);
+        }
+    }
+
+    private void updateRecipeAggregatedRating(long recipeId) {
+        Map<String, Object> stats = jdbcTemplate.queryForMap(
+                "SELECT " +
+                        "COUNT(CASE WHEN Rating > 0 THEN 1 ELSE NULL END) AS ReviewCount, " +
+                        "ROUND(AVG(CASE WHEN Rating > 0 THEN Rating ELSE NULL END)::numeric, 2) AS AvgRating " +
+                        "FROM reviews WHERE RecipeId = ?",
+                recipeId
+        );
+
+        Integer reviewCount = ((Number) stats.get("reviewcount")).intValue();
+        Object avgRatingObj = stats.get("avgrating");
+
+        if (reviewCount == 0 || avgRatingObj == null) {
+            jdbcTemplate.update(
+                    "UPDATE recipes SET AggregatedRating = NULL, ReviewCount = 0 WHERE RecipeId = ?",
+                    recipeId
+            );
+        } else {
+            Double avgRating = ((Number) avgRatingObj).doubleValue();
+            jdbcTemplate.update(
+                    "UPDATE recipes SET AggregatedRating = ?, ReviewCount = ? WHERE RecipeId = ?",
+                    avgRating,
+                    reviewCount,
+                    recipeId
+            );
         }
     }
 
@@ -94,6 +122,12 @@ public class ReviewServiceImpl implements ReviewService {
             throw new IllegalArgumentException("recipe does not exist");
         }
 
+        String authorName = jdbcTemplate.queryForObject(
+                "SELECT AuthorName FROM users WHERE AuthorId = ?",
+                String.class,
+                authorId
+        );
+
         Long newReviewId = jdbcTemplate.queryForObject(
                 "SELECT COALESCE(MAX(ReviewId), 0) + 1 FROM reviews",
                 Long.class
@@ -102,18 +136,19 @@ public class ReviewServiceImpl implements ReviewService {
         Timestamp now = new Timestamp(System.currentTimeMillis());
 
         jdbcTemplate.update(
-                "INSERT INTO reviews (ReviewId, RecipeId, AuthorId, Rating, Review, DateSubmitted, DateModified) " +
-                        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO reviews (ReviewId, RecipeId, AuthorId, AuthorName, Rating, Review, DateSubmitted, DateModified) " +
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 newReviewId,
                 recipeId,
                 authorId,
+                authorName,
                 rating,
                 review,
                 now,
                 now
         );
 
-        refreshRecipeAggregatedRating(recipeId);
+        updateRecipeAggregatedRating(recipeId);
 
         return newReviewId;
     }
@@ -152,7 +187,7 @@ public class ReviewServiceImpl implements ReviewService {
                 reviewId
         );
 
-        refreshRecipeAggregatedRating(recipeId);
+        updateRecipeAggregatedRating(recipeId);
     }
 
     @Override
@@ -178,7 +213,7 @@ public class ReviewServiceImpl implements ReviewService {
 
         jdbcTemplate.update("DELETE FROM review_likes WHERE ReviewId = ?", reviewId);
         jdbcTemplate.update("DELETE FROM reviews WHERE ReviewId = ?", reviewId);
-        refreshRecipeAggregatedRating(recipeId);
+        updateRecipeAggregatedRating(recipeId);
     }
 
     @Override
@@ -208,7 +243,6 @@ public class ReviewServiceImpl implements ReviewService {
                 userId
         );
 
-        // 返回当前总点赞数
         Integer count = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM review_likes WHERE ReviewId = ?",
                 Integer.class,
@@ -262,13 +296,10 @@ public class ReviewServiceImpl implements ReviewService {
         if (total == null) total = 0L;
 
         String orderBy = "ORDER BY r.DateModified DESC";
-        String fromClause = "FROM reviews r " +
-                "JOIN users u ON r.AuthorId = u.AuthorId ";
+        String fromClause = "FROM reviews r ";
         boolean needGroupBy = false;
         if (sort != null && "likes_desc".equals(sort)) {
-            fromClause = "FROM reviews r " +
-                    "JOIN users u ON r.AuthorId = u.AuthorId " +
-                    "LEFT JOIN review_likes rl ON r.ReviewId = rl.ReviewId ";
+            fromClause = "FROM reviews r LEFT JOIN review_likes rl ON r.ReviewId = rl.ReviewId ";
             orderBy = "ORDER BY COUNT(rl.AuthorId) DESC, r.DateModified DESC";
             needGroupBy = true;
         } else if (sort != null && "date_desc".equals(sort)) {
@@ -276,11 +307,11 @@ public class ReviewServiceImpl implements ReviewService {
         }
 
         int offset = (page - 1) * size;
-        String sql = "SELECT r.ReviewId, r.RecipeId, r.AuthorId, u.AuthorName, r.Rating, r.Review, " +
+        String sql = "SELECT r.ReviewId, r.RecipeId, r.AuthorId, r.AuthorName, r.Rating, r.Review, " +
                 "r.DateSubmitted, r.DateModified " +
                 fromClause +
                 "WHERE r.RecipeId = ? " +
-                (needGroupBy ? "GROUP BY r.ReviewId, r.RecipeId, r.AuthorId, u.AuthorName, r.Rating, r.Review, r.DateSubmitted, r.DateModified " : "") +
+                (needGroupBy ? "GROUP BY r.ReviewId, r.RecipeId, r.AuthorId, r.AuthorName, r.Rating, r.Review, r.DateSubmitted, r.DateModified " : "") +
                 orderBy + " LIMIT ? OFFSET ?";
 
         List<ReviewRecord> reviews = jdbcTemplate.query(sql, (rs, rowNum) -> {
@@ -296,17 +327,36 @@ public class ReviewServiceImpl implements ReviewService {
             return rec;
         }, recipeId, size, offset);
 
-        for (ReviewRecord rec : reviews) {
-            List<Long> likes = jdbcTemplate.queryForList(
-                    "SELECT AuthorId FROM review_likes WHERE ReviewId = ? ORDER BY AuthorId",
-                    Long.class,
-                    rec.getReviewId()
+        if (!reviews.isEmpty()) {
+            List<Long> reviewIds = reviews.stream()
+                    .map(ReviewRecord::getReviewId)
+                    .collect(Collectors.toList());
+
+            String placeholders = reviewIds.stream()
+                    .map(id -> "?")
+                    .collect(Collectors.joining(","));
+
+            List<Map<String, Object>> likeRows = jdbcTemplate.queryForList(
+                    "SELECT ReviewId, AuthorId FROM review_likes WHERE ReviewId IN (" + placeholders + ") " +
+                            "ORDER BY ReviewId, AuthorId",
+                    reviewIds.toArray()
             );
-            long[] likesArray = new long[likes.size()];
-            for (int i = 0; i < likes.size(); i++) {
-                likesArray[i] = likes.get(i);
+
+            Map<Long, List<Long>> likesByReview = new HashMap<>();
+            for (Map<String, Object> lr : likeRows) {
+                long rid = ((Number) lr.get("reviewid")).longValue();
+                long aid = ((Number) lr.get("authorid")).longValue();
+                likesByReview.computeIfAbsent(rid, k -> new ArrayList<>()).add(aid);
             }
-            rec.setLikes(likesArray);
+
+            for (ReviewRecord rec : reviews) {
+                List<Long> likes = likesByReview.getOrDefault(rec.getReviewId(), Collections.emptyList());
+                long[] likesArray = new long[likes.size()];
+                for (int i = 0; i < likes.size(); i++) {
+                    likesArray[i] = likes.get(i);
+                }
+                rec.setLikes(likesArray);
+            }
         }
 
         PageResult<ReviewRecord> result = new PageResult<>();
@@ -329,34 +379,7 @@ public class ReviewServiceImpl implements ReviewService {
             throw new IllegalArgumentException("recipe does not exist");
         }
 
-        //+Rating=0的评论排除在平均值计算和ReviewCount之外
-        Map<String, Object> stats = jdbcTemplate.queryForMap(
-                "SELECT " +
-                        "COUNT(CASE WHEN Rating > 0 THEN 1 ELSE NULL END) AS ReviewCount, " +
-                        "ROUND(AVG(CASE WHEN Rating > 0 THEN Rating ELSE NULL END)::numeric, 2) AS AvgRating " +
-                        "FROM reviews WHERE RecipeId = ?",
-                recipeId
-        );
-
-        Integer reviewCount = ((Number) stats.get("reviewcount")).intValue();
-        Object avgRatingObj = stats.get("avgrating");
-
-        //+根据Javadoc，没有评论时aggregatedRating应为NULL
-        if (reviewCount == 0 || avgRatingObj == null) {
-            jdbcTemplate.update(
-                "UPDATE recipes SET AggregatedRating = NULL, ReviewCount = 0 WHERE RecipeId = ?",
-                recipeId
-            );
-        } else {
-            Double avgRating = ((Number) avgRatingObj).doubleValue();
-            jdbcTemplate.update(
-                "UPDATE recipes SET AggregatedRating = ?, ReviewCount = ? WHERE RecipeId = ?",
-                avgRating,
-                reviewCount,
-                recipeId
-            );
-        }
-
+        updateRecipeAggregatedRating(recipeId);
         return recipeService.getRecipeById(recipeId);
     }
 }

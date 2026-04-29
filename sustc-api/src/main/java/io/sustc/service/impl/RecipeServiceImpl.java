@@ -61,26 +61,7 @@ public class RecipeServiceImpl implements RecipeService {
         }
         try {
             Map<String, Object> row = jdbcTemplate.queryForMap(
-                    "SELECT r.RecipeId, r.Name, r.AuthorId, r.CookTime, r.PrepTime, r.TotalTime, " +
-                            "r.DatePublished, r.Description, r.RecipeCategory, r.AggregatedRating, r.ReviewCount, " +
-                            "r.RecipeServings, r.RecipeYield, " +
-                            "n.Calories, n.FatContent, n.SaturatedFatContent, n.CholesterolContent, n.SodiumContent, " +
-                            "n.CarbohydrateContent, n.FiberContent, n.SugarContent, n.ProteinContent " +
-                            "FROM recipes r " +
-                            "LEFT JOIN nutrition n ON r.RecipeId = n.RecipeId " +
-                            "WHERE r.RecipeId = ?",
-                    recipeId
-            );
-
-            String authorName = jdbcTemplate.queryForObject(
-                    "SELECT AuthorName FROM users WHERE AuthorId = ?",
-                    String.class,
-                    ((Number) row.get("authorid")).longValue()
-            );
-
-            List<String> ingredients = jdbcTemplate.queryForList(
-                    "SELECT IngredientPart FROM recipe_ingredients WHERE RecipeId = ? ORDER BY LOWER(IngredientPart)",
-                    String.class,
+                    "SELECT * FROM recipes WHERE RecipeId = ?",
                     recipeId
             );
 
@@ -88,7 +69,7 @@ public class RecipeServiceImpl implements RecipeService {
             recipe.setRecipeId(((Number) row.get("recipeid")).longValue());
             recipe.setName((String) row.get("name"));
             recipe.setAuthorId(((Number) row.get("authorid")).longValue());
-            recipe.setAuthorName(authorName);
+            recipe.setAuthorName((String) row.get("authorname"));
             recipe.setCookTime((String) row.get("cooktime"));
             recipe.setPrepTime((String) row.get("preptime"));
             recipe.setTotalTime((String) row.get("totaltime"));
@@ -119,7 +100,13 @@ public class RecipeServiceImpl implements RecipeService {
             Object servingsObj = row.get("recipeservings");
             recipe.setRecipeServings(servingsObj == null ? 0 : Integer.parseInt(servingsObj.toString()));
             recipe.setRecipeYield((String) row.get("recipeyield"));
-            recipe.setRecipeIngredientParts(ingredients.toArray(new String[0]));
+
+            String ingredientTags = (String) row.get("ingredienttags");
+            if (ingredientTags != null && !ingredientTags.isEmpty()) {
+                recipe.setRecipeIngredientParts(ingredientTags.split("\\|", -1));
+            } else {
+                recipe.setRecipeIngredientParts(new String[0]);
+            }
 
             return recipe;
         } catch (EmptyResultDataAccessException e) {
@@ -165,7 +152,6 @@ public class RecipeServiceImpl implements RecipeService {
         if (total == null) total = 0L;
 
         String orderBy = "ORDER BY r.RecipeId DESC";
-        boolean needNutritionJoin = false;
         if (sort != null) {
             switch (sort) {
                 case "rating_desc":
@@ -175,22 +161,13 @@ public class RecipeServiceImpl implements RecipeService {
                     orderBy = "ORDER BY r.DatePublished DESC NULLS LAST, r.RecipeId DESC";
                     break;
                 case "calories_asc":
-                    orderBy = "ORDER BY n.Calories ASC NULLS LAST, r.RecipeId ASC";
-                    needNutritionJoin = true;
+                    orderBy = "ORDER BY r.Calories ASC NULLS LAST, r.RecipeId ASC";
                     break;
             }
         }
 
         int offset = (page - 1) * size;
-        String fromClause = needNutritionJoin 
-                ? "FROM recipes r LEFT JOIN nutrition n ON r.RecipeId = n.RecipeId"
-                : "FROM recipes r LEFT JOIN nutrition n ON r.RecipeId = n.RecipeId";
-        String sql = "SELECT r.RecipeId, r.Name, r.AuthorId, r.CookTime, r.PrepTime, r.TotalTime, " +
-                "r.DatePublished, r.Description, r.RecipeCategory, r.AggregatedRating, r.ReviewCount, " +
-                "r.RecipeServings, r.RecipeYield, " +
-                "n.Calories, n.FatContent, n.SaturatedFatContent, n.CholesterolContent, n.SodiumContent, " +
-                "n.CarbohydrateContent, n.FiberContent, n.SugarContent, n.ProteinContent " +
-                fromClause + " " + whereClause.toString() + " " + orderBy + " LIMIT ? OFFSET ?";
+        String sql = "SELECT * FROM recipes r " + whereClause.toString() + " " + orderBy + " LIMIT ? OFFSET ?";
         params.add(size);
         params.add(offset);
 
@@ -199,6 +176,7 @@ public class RecipeServiceImpl implements RecipeService {
             r.setRecipeId(rs.getLong("RecipeId"));
             r.setName(rs.getString("Name"));
             r.setAuthorId(rs.getLong("AuthorId"));
+            r.setAuthorName(rs.getString("AuthorName"));
             r.setCookTime(rs.getString("CookTime"));
             r.setPrepTime(rs.getString("PrepTime"));
             r.setTotalTime(rs.getString("TotalTime"));
@@ -229,28 +207,14 @@ public class RecipeServiceImpl implements RecipeService {
             Object servingsObj = rs.getObject("RecipeServings");
             r.setRecipeServings(servingsObj == null ? 0 : Integer.parseInt(servingsObj.toString()));
             r.setRecipeYield(rs.getString("RecipeYield"));
+
+            String ingredientTags = rs.getString("IngredientTags");
+            r.setRecipeIngredientParts(
+                    ingredientTags != null ? ingredientTags.split("\\|", -1) : new String[0]
+            );
+
             return r;
         });
-
-        // 填充作者名和配料（完整数据）
-        for (RecipeRecord r : recipes) {
-            try {
-                String authorName = jdbcTemplate.queryForObject(
-                        "SELECT AuthorName FROM users WHERE AuthorId = ?",
-                        String.class,
-                        r.getAuthorId()
-                );
-                r.setAuthorName(authorName);
-            } catch (EmptyResultDataAccessException e) {
-                r.setAuthorName(null);
-            }
-            List<String> ingredients = jdbcTemplate.queryForList(
-                    "SELECT IngredientPart FROM recipe_ingredients WHERE RecipeId = ? ORDER BY LOWER(IngredientPart)",
-                    String.class,
-                    r.getRecipeId()
-            );
-            r.setRecipeIngredientParts(ingredients.toArray(new String[0]));
-        }
 
         PageResult<RecipeRecord> result = new PageResult<>();
         result.setItems(recipes);
@@ -269,59 +233,54 @@ public class RecipeServiceImpl implements RecipeService {
             throw new IllegalArgumentException("recipe name cannot be null or empty");
         }
 
+        String authorName = jdbcTemplate.queryForObject(
+                "SELECT AuthorName FROM users WHERE AuthorId = ?",
+                String.class,
+                authorId
+        );
+
+        String ingredientTags = null;
+        if (dto.getRecipeIngredientParts() != null && dto.getRecipeIngredientParts().length > 0) {
+            ingredientTags = String.join("|", dto.getRecipeIngredientParts());
+        }
+
         Long newRecipeId = jdbcTemplate.queryForObject(
                 "SELECT COALESCE(MAX(RecipeId), 0) + 1 FROM recipes",
                 Long.class
         );
 
         jdbcTemplate.update(
-                "INSERT INTO recipes (RecipeId, Name, AuthorId, CookTime, PrepTime, TotalTime, " +
-                        "DatePublished, Description, RecipeCategory, AggregatedRating, ReviewCount, " +
-                        "RecipeServings, RecipeYield) " +
-                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO recipes (RecipeId, Name, AuthorId, AuthorName, CookTime, PrepTime, TotalTime, " +
+                        "DatePublished, Description, RecipeCategory, RecipeServings, RecipeYield, IngredientTags, " +
+                        "AggregatedRating, ReviewCount, " +
+                        "Calories, FatContent, SaturatedFatContent, CholesterolContent, SodiumContent, " +
+                        "CarbohydrateContent, FiberContent, SugarContent, ProteinContent) " +
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 newRecipeId,
                 dto.getName().trim(),
                 authorId,
+                authorName,
                 dto.getCookTime(),
                 dto.getPrepTime(),
                 dto.getTotalTime(),
                 dto.getDatePublished() != null ? dto.getDatePublished() : new Timestamp(System.currentTimeMillis()),
                 dto.getDescription(),
                 dto.getRecipeCategory(),
+                dto.getRecipeServings(),
+                dto.getRecipeYield(),
+                ingredientTags,
                 dto.getAggregatedRating(),
                 dto.getReviewCount(),
-                dto.getRecipeServings(),
-                dto.getRecipeYield()
+                dto.getCalories() > 0 ? dto.getCalories() : null,
+                dto.getFatContent() > 0 ? dto.getFatContent() : null,
+                dto.getSaturatedFatContent() > 0 ? dto.getSaturatedFatContent() : null,
+                dto.getCholesterolContent() > 0 ? dto.getCholesterolContent() : null,
+                dto.getSodiumContent() > 0 ? dto.getSodiumContent() : null,
+                dto.getCarbohydrateContent() > 0 ? dto.getCarbohydrateContent() : null,
+                dto.getFiberContent() > 0 ? dto.getFiberContent() : null,
+                dto.getSugarContent() > 0 ? dto.getSugarContent() : null,
+                dto.getProteinContent() > 0 ? dto.getProteinContent() : null
         );
-
-        if (dto.getCalories() > 0) {
-            jdbcTemplate.update(
-                    "INSERT INTO nutrition (RecipeId, Calories, FatContent, SaturatedFatContent, " +
-                            "CholesterolContent, SodiumContent, CarbohydrateContent, FiberContent, " +
-                            "SugarContent, ProteinContent) " +
-                            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) " +
-                            "ON CONFLICT (RecipeId) DO UPDATE SET " +
-                            "Calories = EXCLUDED.Calories, " +
-                            "FatContent = EXCLUDED.FatContent, " +
-                            "SaturatedFatContent = EXCLUDED.SaturatedFatContent, " +
-                            "CholesterolContent = EXCLUDED.CholesterolContent, " +
-                            "SodiumContent = EXCLUDED.SodiumContent, " +
-                            "CarbohydrateContent = EXCLUDED.CarbohydrateContent, " +
-                            "FiberContent = EXCLUDED.FiberContent, " +
-                            "SugarContent = EXCLUDED.SugarContent, " +
-                            "ProteinContent = EXCLUDED.ProteinContent",
-                    newRecipeId,
-                    dto.getCalories(),
-                    dto.getFatContent(),
-                    dto.getSaturatedFatContent(),
-                    dto.getCholesterolContent(),
-                    dto.getSodiumContent(),
-                    dto.getCarbohydrateContent(),
-                    dto.getFiberContent(),
-                    dto.getSugarContent(),
-                    dto.getProteinContent()
-            );
-        }
 
         if (dto.getRecipeIngredientParts() != null && dto.getRecipeIngredientParts().length > 0) {
             Set<String> uniqueIngredients = new HashSet<>();
@@ -361,10 +320,6 @@ public class RecipeServiceImpl implements RecipeService {
             throw new SecurityException("only recipe author can delete recipe");
         }
 
-        jdbcTemplate.update("DELETE FROM review_likes WHERE ReviewId IN (SELECT ReviewId FROM reviews WHERE RecipeId = ?)", recipeId);
-        jdbcTemplate.update("DELETE FROM reviews WHERE RecipeId = ?", recipeId);
-        jdbcTemplate.update("DELETE FROM recipe_ingredients WHERE RecipeId = ?", recipeId);
-        jdbcTemplate.update("DELETE FROM nutrition WHERE RecipeId = ?", recipeId);
         jdbcTemplate.update("DELETE FROM recipes WHERE RecipeId = ?", recipeId);
     }
 
@@ -422,7 +377,6 @@ public class RecipeServiceImpl implements RecipeService {
             jdbcTemplate.update("UPDATE recipes SET PrepTime = ? WHERE RecipeId = ?", prepTimeIso, recipeId);
         }
         if (totalDuration != null) {
-            // 将 Duration 转换为 ISO 8601 字符串
             long totalSeconds = totalDuration.getSeconds();
             String totalIso = "PT" + totalSeconds + "S";
             if (totalSeconds >= 3600) {
@@ -442,7 +396,7 @@ public class RecipeServiceImpl implements RecipeService {
     @Override
     public Map<String, Object> getClosestCaloriePair() {
         Long count = jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM nutrition WHERE Calories IS NOT NULL",
+                "SELECT COUNT(*) FROM recipes WHERE Calories IS NOT NULL",
                 Long.class
         );
         if (count == null || count < 2) {
@@ -456,8 +410,8 @@ public class RecipeServiceImpl implements RecipeService {
                 "        n1.Calories AS CaloriesA, " +
                 "        n2.Calories AS CaloriesB, " +
                 "        ABS(n1.Calories - n2.Calories) AS Difference " +
-                "    FROM nutrition n1 " +
-                "    JOIN nutrition n2 ON n1.RecipeId < n2.RecipeId " +
+                "    FROM recipes n1 " +
+                "    JOIN recipes n2 ON n1.RecipeId < n2.RecipeId " +
                 "    WHERE n1.Calories IS NOT NULL AND n2.Calories IS NOT NULL " +
                 ") " +
                 "SELECT RecipeA, RecipeB, CaloriesA, CaloriesB, Difference " +
@@ -477,7 +431,7 @@ public class RecipeServiceImpl implements RecipeService {
             Object caloriesAObj = row.get("caloriesa");
             Object caloriesBObj = row.get("caloriesb");
             Object diffObj = row.get("difference");
-            
+
             result.put("RecipeA", recipeAObj instanceof Number ? ((Number) recipeAObj).longValue() : recipeAObj);
             result.put("RecipeB", recipeBObj instanceof Number ? ((Number) recipeBObj).longValue() : recipeBObj);
             result.put("CaloriesA", caloriesAObj instanceof Number ? ((Number) caloriesAObj).doubleValue() : caloriesAObj);
